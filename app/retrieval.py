@@ -14,7 +14,7 @@ def hybrid_search(thread_id: str, query: str, top_k: int = TOP_K) -> list[dict]:
 
     with pool.connection() as conn:
         vec_rows = conn.execute(
-            "SELECT c.id, c.page, c.content, d.filename "
+            "SELECT c.id, c.document_id, c.page, c.content, d.filename "
             "FROM chunks c JOIN documents d ON d.id = c.document_id "
             "WHERE c.thread_id = %s ORDER BY c.embedding <=> %s::vector LIMIT 20",
             (thread_id, qvec),
@@ -23,7 +23,7 @@ def hybrid_search(thread_id: str, query: str, top_k: int = TOP_K) -> list[dict]:
         fts_rows = []
         if ts_query:
             fts_rows = conn.execute(
-                "SELECT c.id, c.page, c.content, d.filename "
+                "SELECT c.id, c.document_id, c.page, c.content, d.filename "
                 "FROM chunks c JOIN documents d ON d.id = c.document_id "
                 "WHERE c.thread_id = %s AND c.tsv @@ to_tsquery('simple', %s) "
                 "ORDER BY ts_rank_cd(c.tsv, to_tsquery('simple', %s)) DESC LIMIT 20",

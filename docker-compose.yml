@@ -1,0 +1,27 @@
+services:
+  backend:
+    build: .
+    env_file: .env                 # DATABASE_URL, GROQ_API_KEY, JWT_SECRET
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data           # uploaded PDFs survive restarts (reference links need them)
+      - ./models:/app/models       # models.txt, editable without a rebuild
+      - hf_cache:/models-cache     # the 1 GB embedding model is downloaded only once
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    environment:
+      API_URL: http://backend:8000            # container to container
+      PUBLIC_API_URL: http://127.0.0.1:8000   # what your browser uses for reference links
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  hf_cache:

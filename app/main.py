@@ -2,14 +2,16 @@ import hashlib
 import logging
 import threading
 from contextlib import asynccontextmanager
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
-from .agent import answer, rewrite_query
-from .auth import create_token, current_user, hash_password, verify_password
+from .agent import answer, cited_pages, rewrite_query, wants_references
+from .auth import (create_file_token, create_token, current_user, hash_password,
+                   verify_file_token, verify_password)
 from .config import (CHAT_MODEL, HISTORY_MESSAGES, MAX_UPLOAD_MB, UPLOAD_DIR,
                      load_chat_models)
 from .db import pool
@@ -36,6 +38,10 @@ class ThreadCreate(BaseModel):
     title: str | None = None
 
 
+class ThreadRename(BaseModel):
+    title: str
+
+
 class ChatRequest(BaseModel):
     message: str
     model: str | None = None
@@ -52,6 +58,41 @@ def _require_thread(conn, thread_id: UUID, user_id: str):
         "SELECT 1 FROM threads WHERE id = %s AND user_id = %s", (thread_id, user_id)
     ).fetchone():
         raise HTTPException(404, "Thread not found")
+
+
+def _file_path(document_id):
+    return UPLOAD_DIR / f"{document_id}.pdf"
+
+
+def _build_sources(chunks: list[dict], reply: str) -> list[dict]:
+    """One entry per (document, page). If the answer cites pages, keep only those."""
+    cited = cited_pages(reply)
+    picked = [c for c in chunks if c["page"] in cited] or chunks
+    seen, out = set(), []
+    for c in picked:
+        key = (str(c["document_id"]), c["page"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "document_id": str(c["document_id"]),
+            "filename": c["filename"],
+            "page": c["page"],
+            "snippet": c["content"][:200],
+        })
+    return sorted(out, key=lambda s: (s["filename"], s["page"]))
+
+
+def _link_sources(sources, user_id: str) -> list[dict]:
+    """Adds a short-lived link to each source whose PDF is still on disk."""
+    out = []
+    for s in sources or []:
+        s = dict(s)
+        doc_id = s.get("document_id")
+        if doc_id and _file_path(doc_id).exists():
+            s["url"] = f"/files/{doc_id}?token={create_file_token(user_id, doc_id)}"
+        out.append(s)
+    return out
 
 
 # ---------- Public endpoints ----------
@@ -122,6 +163,15 @@ def list_threads(user_id: str = Depends(current_user)):
         ).fetchall()
 
 
+@app.patch("/threads/{thread_id}")
+def rename_thread(thread_id: UUID, body: ThreadRename, user_id: str = Depends(current_user)):
+    title = body.title.strip()[:60] or "New chat"
+    with pool.connection() as conn:
+        _require_thread(conn, thread_id, user_id)
+        conn.execute("UPDATE threads SET title = %s WHERE id = %s", (title, thread_id))
+    return {"id": str(thread_id), "title": title}
+
+
 @app.delete("/threads/{thread_id}")
 def delete_thread(thread_id: UUID, user_id: str = Depends(current_user)):
     with pool.connection() as conn:
@@ -135,11 +185,14 @@ def delete_thread(thread_id: UUID, user_id: str = Depends(current_user)):
 def get_messages(thread_id: UUID, user_id: str = Depends(current_user)):
     with pool.connection() as conn:
         _require_thread(conn, thread_id, user_id)
-        return conn.execute(
+        rows = conn.execute(
             "SELECT id, role, content, sources, model, created_at "
             "FROM messages WHERE thread_id = %s ORDER BY created_at, id",
             (thread_id,),
         ).fetchall()
+    for r in rows:
+        r["sources"] = _link_sources(r.get("sources"), user_id)
+    return rows
 
 
 # ---------- Documents ----------
@@ -184,10 +237,31 @@ async def upload_document(
         ).fetchone()
 
     doc_id = str(row["id"])
-    path = UPLOAD_DIR / f"{uuid4().hex}.pdf"
+    path = _file_path(doc_id)          # named after the document id so links can find it
     path.write_bytes(data)
     background.add_task(ingest_pdf, doc_id, str(thread_id), str(path))
     return {"document_id": doc_id, "status": "processing"}
+
+
+@app.get("/files/{document_id}")
+def open_document(document_id: UUID, token: str):
+    """Opens the original PDF. Used by reference links, so it checks a short-lived file token."""
+    user_id = verify_file_token(token, document_id)
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT d.filename FROM documents d JOIN threads t ON t.id = d.thread_id "
+            "WHERE d.id = %s AND t.user_id = %s",
+            (document_id, user_id),
+        ).fetchone()
+    path = _file_path(document_id)
+    if not row or not path.exists():
+        raise HTTPException(404, "File not found")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=row["filename"] or "document.pdf",
+        content_disposition_type="inline",
+    )
 
 
 # ---------- Chat ----------
@@ -217,17 +291,17 @@ def chat(thread_id: UUID, body: ChatRequest, user_id: str = Depends(current_user
             (thread_id, question),
         )
 
+    wants_refs = wants_references(question)
     sources, used_model = [], None
     if not has_docs:
         reply = "Please upload a PDF to this thread first (and wait until it shows as ready)."
     else:
         search_query = rewrite_query(question, history)
         chunks = hybrid_search(str(thread_id), search_query)
-        reply, used_model = answer(question, chunks, history, body.model)
-        sources = [
-            {"filename": c["filename"], "page": c["page"], "snippet": c["content"][:200]}
-            for c in chunks
-        ]
+        reply, used_model, found = answer(question, chunks, history, body.model, wants_refs)
+        # References only when the user asked for them AND the answer came from the document
+        if wants_refs and found:
+            sources = _build_sources(chunks, reply)
 
     with pool.connection() as conn:
         conn.execute(
@@ -235,15 +309,4 @@ def chat(thread_id: UUID, body: ChatRequest, user_id: str = Depends(current_user
             "VALUES (%s, 'assistant', %s, %s, %s)",
             (thread_id, reply, Jsonb(sources), used_model),
         )
-    return {"answer": reply, "sources": sources, "model": used_model}
-class ThreadRename(BaseModel):
-    title: str
-
-
-@app.patch("/threads/{thread_id}")
-def rename_thread(thread_id: UUID, body: ThreadRename, user_id: str = Depends(current_user)):
-    title = body.title.strip()[:60] or "New chat"
-    with pool.connection() as conn:
-        _require_thread(conn, thread_id, user_id)
-        conn.execute("UPDATE threads SET title = %s WHERE id = %s", (title, thread_id))
-    return {"id": str(thread_id), "title": title}
+    return {"answer": reply, "sources": _link_sources(sources, user_id), "model": used_model}

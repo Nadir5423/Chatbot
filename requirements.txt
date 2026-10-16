@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+psycopg[binary,pool]
+pymupdf
+sentence-transformers
+groq
+pyjwt
+bcrypt

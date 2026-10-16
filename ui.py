@@ -4,13 +4,17 @@ Run (backend must already be running in another terminal):
     streamlit run ui.py
 """
 import html
+import os
 import time
 from datetime import datetime
 
 import requests
 import streamlit as st
 
-API_URL = "http://127.0.0.1:8000"
+# API_URL: where this app talks to the backend (inside Docker it is http://backend:8000).
+# PUBLIC_API_URL: the address your BROWSER uses; reference links open from it.
+API_URL = os.getenv("API_URL", "http://127.0.0.1:8000").rstrip("/")
+PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", API_URL).rstrip("/")
 MAX_UPLOAD_MB = 25
 CHAT_TIMEOUT = 120
 DEFAULT_TIMEOUT = 30
@@ -103,14 +107,12 @@ header[data-testid="stHeader"] { background: transparent; }
     background: var(--green); border: 0; color: #fff; }
 .st-key-composer_box button:disabled { background: #cfd8e0; }
 
-/* ---------- Source cards ---------- */
-.src-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: .6rem; margin: .3rem 0; }
-.src { background: #f4f8fb; border: 1px solid var(--line); border-radius: 12px; padding: .65rem .75rem; }
-.src-top { display: flex; align-items: center; gap: .5rem; margin-bottom: .4rem; }
-.pg { background: var(--green); color: #fff; font-size: .7rem; font-weight: 600; padding: .1rem .5rem; border-radius: 6px; }
-.fn { color: #6b7a89; font-size: .72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.snip { background: #fff; border-radius: 8px; padding: .45rem .55rem; font-size: .78rem; color: #3a4754;
-    max-height: 7.5rem; overflow: hidden; }
+/* ---------- References (shown only when the user asks) ---------- */
+.refs { margin: .6rem 0 .2rem; font-size: .88rem; }
+.refs-title { font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; color: #6b7a89; margin-bottom: .2rem; }
+.refs ul { margin: 0; padding-left: 1.1rem; }
+.refs a { color: var(--green); text-decoration: none; }
+.refs a:hover { text-decoration: underline; }
 
 /* ---------- Documents vault ---------- */
 .vault-head { display: flex; align-items: center; gap: .5rem; font-weight: 700; font-size: 1.05rem; margin-bottom: .6rem; }
@@ -508,17 +510,27 @@ def docs_panel():
 # ======================================================================
 # Chat
 # ======================================================================
-def render_sources(sources, expanded=False):
+def render_sources(sources):
+    """Simple bullet list of references. Nothing is drawn when there are none."""
     if not sources:
         return
-    cards = "".join(
-        f'<div class="src"><div class="src-top"><span class="pg">Page {html.escape(str(s.get("page", "?")))}</span>'
-        f'<span class="fn">{html.escape(str(s.get("filename", "")))}</span></div>'
-        f'<div class="snip">{html.escape(str(s.get("snippet", "")))}…</div></div>'
-        for s in sources
+    seen, items = set(), []
+    for src in sources:
+        key = (src.get("filename"), src.get("page"))
+        if key in seen:
+            continue
+        seen.add(key)
+        label = html.escape(f'{src.get("filename") or "document"}, page {src.get("page", "?")}')
+        url = src.get("url")
+        if url:
+            href = html.escape(f'{PUBLIC_API_URL}{url}#page={src.get("page") or 1}', quote=True)
+            items.append(f'<li><a href="{href}" target="_blank" rel="noopener">{label}</a></li>')
+        else:
+            items.append(f"<li>{label}</li>")
+    st.markdown(
+        '<div class="refs"><div class="refs-title">References</div><ul>' + "".join(items) + "</ul></div>",
+        unsafe_allow_html=True,
     )
-    with st.expander(f"Sources ({len(sources)})", expanded=expanded):
-        st.markdown(f'<div class="src-grid">{cards}</div>', unsafe_allow_html=True)
 
 
 def render_footer(model, latency_ms):
@@ -531,12 +543,12 @@ def render_footer(model, latency_ms):
         st.caption(" · ".join(parts))
 
 
-def render_message(m, expanded=False):
+def render_message(m):
     avatar = USER_AVATAR if m["role"] == "user" else BOT_AVATAR
     with st.chat_message(m["role"], avatar=avatar):
         st.markdown(m["content"])
         if m["role"] == "assistant":
-            render_sources(m.get("sources"), expanded)
+            render_sources(m.get("sources"))
             render_footer(m.get("model"), m.get("latency_ms"))
 
 
@@ -566,7 +578,7 @@ def send_question(thread, question):
             return
         answer = data["answer"]
         st.write_stream(typing(answer))
-        render_sources(data.get("sources"), expanded=True)
+        render_sources(data.get("sources"))
         render_footer(data.get("model"), latency)
 
     is_first = not st.session_state.messages
@@ -658,9 +670,8 @@ def chat_page():
         chat_col, doc_col = st.container(), None
 
     with chat_col:
-        for i, m in enumerate(st.session_state.messages):
-            last = i == len(st.session_state.messages) - 1
-            render_message(m, expanded=last and m["role"] == "assistant")
+        for m in st.session_state.messages:
+            render_message(m)
 
         if not st.session_state.messages and not prompt:
             if ready:
