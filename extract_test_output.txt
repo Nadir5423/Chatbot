@@ -1,0 +1,49 @@
+File: sample_report_en_ur.pdf
+Pages: 2
+
+--- Page 1: chars=1215 urdu=0 presentation_forms=0 latin=875
+Annual Report 2025
+Sample Youth Education Organization (test document for the RAG chatbot)
+1. About the organization
+The organization works to give young people in remote areas of Pakistan access to quality education and practical skills. It runs
+after-school tutoring, digital skills workshops and teacher training programs, and it is supported by local donors and community
+volunteers.
+2. Annual bu
+
+--- Page 2: chars=670 urdu=162 presentation_forms=320 latin=0
+۲۰۲۵ٹ 
+ دﺳﺘﺎوﯾﺰ(
+ﮦ ﻧﻤﻮن
+ے ےﯽﻟ ک ﭻﻧﺎﺟ ﯽﮐ ٹﻮﺑ ﭧﯿﭼ ﯽﺟ
+ے )آر ا
+ﮦ ﻧﻮﺟﻮاﻧﺎن ﺗﻌﻠﯿﻤﯽ ادار
+ﮦ
+ﻧﻤﻮن
+ ﮐﺎ ﺗﻌﺎرف
+ے ادار
+۔۱
+ ﺷﺎم ﮐﯽ ﻣﻔﺖ ﭨﯿﻮﺷﻦ، ڈﯾﺠ
+ﮦ ادار
+ﮨﮯ۔ ﮐﺎم ﮐﺮﺗﺎ 
+ے ےﯽﻟ ے ک
+ﻧﺮ ﺳﮑﮭﺎن
+ﮦ ﻧﻮﺟﻮاﻧﻮں ﮐﻮ ﻣﻌﯿﺎری ﺗﻌﻠﯿﻢ اور ﻋﻤﻠﯽ 
+ے دور دراز ﻋﻼﻗﻮں ک
+ے ﭘﺎﮐﺴﺘﺎن ک
+ﮦ
+ ﺑﺠﭧ
+ﮦ ﺳﺎﻻن
+۔۲
+ ﺑﺎﻗﯽ ﺑﺠﭧ اس ﻃ
+ے۔ ﻻﮐﮫ روپ
+ﮦ، ﯾﻌﻨﯽ ﭘﻨﺪر
+ﮨﮯ
+وﺗﺎ 
+ﮦ ﺗﯿﺲ ﻓﯿﺼﺪ ﺗﻌﻠﯿﻤﯽ ﺳﺮﮔﺮﻣﯿﻮں ﭘﺮ ﺧﺮچ 
+ے اس ﻣﯿﮟ س
+ﮨﮯ۔ ے ﺑﺠﭧ ﭘﭽﺎس ﻻﮐﮫ روپ
+ﮦ
+ﺎ ﺳﺎﻻن
+ ﭘﺮوﮔﺮام۲۰۲۵ﺎل ۳
+ا
+

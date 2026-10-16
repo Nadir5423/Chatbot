@@ -1,0 +1,24 @@
+======================================================================
+MODEL: openai/gpt-oss-120b
+--- ANSWER:
+Idare ka salana budget 50 lakh rupay hai aur is mein se 30 percent taleemi activities par kharch hota hai.
+--- REWRITE:
+What is the department's annual budget and how much is spent on educational activities?  
+ادارے کا سالانہ بجٹ کتنا ہے اور تعلیمی سرگرمیوں پر کتنا خرچ ہوتا ہے؟  
+Idare ka salana budget kitna hai aur taleemi activities par kitna kharch hota hai?
+======================================================================
+MODEL: openai/gpt-oss-20b
+--- ANSWER:
+Idare ka salana budget 50 lakh rupay hai, aur taleemi activities par 30% kharch hota hai, jo ke 15 lakh rupay ke barabar hai.
+--- REWRITE:
+What is the annual budget of the organization and how much is spent on educational activities?  
+ادارے کا سالانہ بجٹ کتنا ہے اور تعلیمی سرگرمیوں پر کتنا خرچ ہوتا ہے؟  
+Idare ka salana budget kitna hai aur taleemi activities par kitna kharch hota hai?
+======================================================================
+MODEL: qwen/qwen3.8-27b
+--- ANSWER:
+Idare ka salana budget panchas lakh rupay hai. Is budget mein se taleemi sargarmiyon par tees fiصد (30%) kharch hota hai.
+--- REWRITE:
+What is the annual budget of the administration and how much is spent on educational activities?
+ادارے کا سالانہ بجٹ کتنا ہے اور تعلیمی سرگرمیوں پر کتنا خرچ ہوتا ہے؟
+Idare ka salana budget kitna hai aur taleemi activities par kitna kharch hota hai?
