@@ -6,8 +6,9 @@ from uuid import UUID
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from psycopg.errors import UniqueViolation
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .agent import answer, cited_pages, rewrite_query, wants_references
 from .auth import (create_file_token, create_token, current_user, hash_password,
@@ -43,7 +44,7 @@ class ThreadRename(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., max_length=4000)
     model: str | None = None
 
 
@@ -104,9 +105,14 @@ def root():
 
 @app.get("/health")
 def health():
+    return {"status": "ok"}
+
+
+@app.get("/health/db")
+def health_db():
     with pool.connection() as conn:
         conn.execute("SELECT 1")
-    return {"status": "ok"}
+    return {"status": "ok", "db": "connected"}
 
 
 @app.get("/models")
@@ -119,13 +125,16 @@ def register(body: AuthBody):
     email = body.email.strip().lower()
     if "@" not in email or len(body.password) < 8:
         raise HTTPException(400, "Enter a valid email and a password of 8+ characters")
-    with pool.connection() as conn:
-        if conn.execute("SELECT 1 FROM users WHERE email = %s", (email,)).fetchone():
-            raise HTTPException(409, "This email is already registered")
-        row = conn.execute(
-            "INSERT INTO users (email, password_hash) VALUES (%s, %s) RETURNING id",
-            (email, hash_password(body.password)),
-        ).fetchone()
+    try:
+        with pool.connection() as conn:
+            if conn.execute("SELECT 1 FROM users WHERE email = %s", (email,)).fetchone():
+                raise HTTPException(409, "This email is already registered")
+            row = conn.execute(
+                "INSERT INTO users (email, password_hash) VALUES (%s, %s) RETURNING id",
+                (email, hash_password(body.password)),
+            ).fetchone()
+    except UniqueViolation:
+        raise HTTPException(409, "This email is already registered")
     return {"token": create_token(row["id"]), "email": email}
 
 
@@ -225,7 +234,7 @@ async def upload_document(
     with pool.connection() as conn:
         _require_thread(conn, thread_id, user_id)
         dup = conn.execute(
-            "SELECT id FROM documents WHERE thread_id = %s AND file_hash = %s",
+            "SELECT id FROM documents WHERE thread_id = %s AND file_hash = %s AND status != 'failed'",
             (thread_id, file_hash),
         ).fetchone()
         if dup:
@@ -298,7 +307,14 @@ def chat(thread_id: UUID, body: ChatRequest, user_id: str = Depends(current_user
     else:
         search_query = rewrite_query(question, history)
         chunks = hybrid_search(str(thread_id), search_query)
-        reply, used_model, found = answer(question, chunks, history, body.model, wants_refs)
+        try:
+            reply, used_model, found = answer(question, chunks, history, body.model, wants_refs)
+        except Exception as e:
+            logging.exception("LLM generation failed: %s", e)
+            raise HTTPException(
+                503,
+                "The AI model service is currently unavailable or rate limited. Please try again in a few moments."
+            )
         # References only when the user asked for them AND the answer came from the document
         if wants_refs and found:
             sources = _build_sources(chunks, reply)

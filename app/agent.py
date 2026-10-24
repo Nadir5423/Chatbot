@@ -6,7 +6,7 @@ from groq import Groq
 from .config import CHAT_MODEL, FAST_MODEL, GROQ_API_KEY
 
 log = logging.getLogger("agent")
-client = Groq(api_key=GROQ_API_KEY)
+client = Groq(api_key=GROQ_API_KEY, timeout=30.0)
 
 NOT_FOUND_TAG = "[NOT_FOUND]"
 NOT_FOUND_TEXT = "I couldn't find this in the document."
@@ -69,14 +69,16 @@ def cited_pages(text: str) -> set[int]:
     return pages
 
 
-def _chat(model: str, messages: list[dict], temperature: float = 0.1, max_tokens: int = 2000) -> str:
+def _chat(model: str, messages: list[dict], temperature: float = 0.1, max_tokens: int = 500) -> str:
     r = client.chat.completions.create(
-        model=model, messages=messages, temperature=temperature, max_tokens=max_tokens
+        model=model, messages=messages, temperature=temperature, max_tokens=max_tokens, timeout=30.0
     )
     return (r.choices[0].message.content or "").strip()
 
 
 def rewrite_query(question: str, history: list[dict]) -> str:
+    if not history:
+        return question
     hist = "\n".join(f"{m['role']}: {m['content'][:500]}" for m in history[-6:])
     try:
         q = _chat(
@@ -85,7 +87,7 @@ def rewrite_query(question: str, history: list[dict]) -> str:
                 {"role": "system", "content": REWRITE_SYSTEM},
                 {"role": "user", "content": f"Chat history:\n{hist or '(none)'}\n\nLatest message: {question}"},
             ],
-            max_tokens=300,
+            max_tokens=80,
         )
         return q or question
     except Exception:
@@ -108,8 +110,14 @@ def _split_not_found(text: str) -> tuple[str, bool]:
 def answer(question: str, chunks: list[dict], history: list[dict],
            model: str | None = None, wants_refs: bool = False) -> tuple[str, str, bool]:
     """Returns (reply, model used, found_in_document)."""
+    primary = model or CHAT_MODEL
+    if not chunks:
+        return NOT_FOUND_TEXT, primary, False
+
+    # Prevent prompt injection by escaping XML delimiters
     context = "\n\n".join(
-        f"[{c['filename']}, page {c['page']}]\n{c['content']}" for c in chunks
+        f"[{c['filename']}, page {c['page']}]\n{c['content'].replace('</context>', '&lt;/context&gt;')}"
+        for c in chunks
     )
     system = ANSWER_SYSTEM + " " + (REFS_ON if wants_refs else REFS_OFF)
     messages = [{"role": "system", "content": system}]
@@ -118,10 +126,9 @@ def answer(question: str, chunks: list[dict], history: list[dict],
         {"role": "user", "content": f"<context>\n{context}\n</context>\n\nQuestion: {question}"}
     )
 
-    primary = model or CHAT_MODEL
     for m in dict.fromkeys([primary, FAST_MODEL]):     # primary, then fallback
         try:
-            reply, found = _split_not_found(_chat(m, messages, temperature=0.2))
+            reply, found = _split_not_found(_chat(m, messages, temperature=0.2, max_tokens=500))
             return reply, m, found
         except Exception:
             log.exception("Model %s failed", m)

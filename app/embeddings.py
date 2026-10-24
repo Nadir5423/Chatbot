@@ -1,6 +1,13 @@
+import os
+from functools import lru_cache
+import torch
 from sentence_transformers import SentenceTransformer
 
 from .config import EMBED_MODEL
+
+# Configure PyTorch CPU threads for maximum throughput
+if hasattr(os, "cpu_count") and os.cpu_count():
+    torch.set_num_threads(max(1, os.cpu_count() - 1))
 
 _model = None
 
@@ -13,16 +20,31 @@ def get_model() -> SentenceTransformer:
 
 
 def embed_passages(texts: list[str]) -> list[list[float]]:
-    vecs = get_model().encode(
-        [f"passage: {t}" for t in texts],
-        normalize_embeddings=True,
-        batch_size=16,
-    )
+    formatted = [f"passage: {t}" for t in texts]
+    with torch.inference_mode():
+        vecs = get_model().encode(
+            formatted,
+            normalize_embeddings=True,
+            batch_size=64,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
     return vecs.tolist()
 
 
+@lru_cache(maxsize=512)
+def _embed_cached(text: str) -> tuple:
+    with torch.inference_mode():
+        return tuple(float(x) for x in get_model().encode(
+            f"query: {text}",
+            normalize_embeddings=True,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        ))
+
+
 def embed_query(text: str) -> list[float]:
-    return get_model().encode(f"query: {text}", normalize_embeddings=True).tolist()
+    return list(_embed_cached(text))
 
 
 def to_pgvector(vec: list[float]) -> str:

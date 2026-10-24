@@ -9,8 +9,13 @@ __pycache__/
 .venv/
 venv/
 
+# Data & Uploads
+data/
+*.pdf
+
 # Node.js
 node_modules/
 
 # IDE
 .vscode/
+.idea/

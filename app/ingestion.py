@@ -66,22 +66,25 @@ def ingest_pdf(document_id: str, thread_id: str, path: str) -> None:
         texts = [c for _, c in rows]
         vectors = embed_passages(texts)
 
+        chunks_data = [
+            (document_id, thread_id, page, idx, content, to_pgvector(vec))
+            for idx, ((page, content), vec) in enumerate(zip(rows, vectors))
+        ]
+        note = f"Skipped pages (empty or non-English): {skipped}" if skipped else None
+
         with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.executemany(
-                    "INSERT INTO chunks (document_id, thread_id, page, chunk_index, content, embedding) "
-                    "VALUES (%s, %s, %s, %s, %s, %s::vector)",
-                    [
-                        (document_id, thread_id, page, idx, content, to_pgvector(vec))
-                        for idx, ((page, content), vec) in enumerate(zip(rows, vectors))
-                    ],
-                )
-                note = f"Skipped pages (empty or non-English): {skipped}" if skipped else None
-                cur.execute(
-                    "UPDATE documents SET status='ready', page_count=%s, error=%s WHERE id=%s",
-                    (page_count, note, document_id),
-                )
-        log.info("Ingested %s: %d chunks", document_id, len(rows))
+            with conn.pipeline():
+                with conn.cursor() as cur:
+                    cur.executemany(
+                        "INSERT INTO chunks (document_id, thread_id, page, chunk_index, content, embedding) "
+                        "VALUES (%s, %s, %s, %s, %s, %s::vector)",
+                        chunks_data,
+                    )
+                    cur.execute(
+                        "UPDATE documents SET status='ready', page_count=%s, error=%s WHERE id=%s",
+                        (page_count, note, document_id),
+                    )
+        log.info("Ingested %s: %d chunks successfully", document_id, len(rows))
 
     except Exception as e:
         log.exception("Ingestion failed")
