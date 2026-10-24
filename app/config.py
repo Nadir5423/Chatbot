@@ -23,7 +23,7 @@ MODELS_FILE = BASE_DIR / "models" / "models.txt"
 UPLOAD_DIR = BASE_DIR / "data" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-EMBED_MODEL = "intfloat/multilingual-e5-base"   # 768 dimensions
+EMBED_MODEL = "intfloat/multilingual-e5-small"  # 384 dimensions (matches DB schema & 4x faster on CPU)
 CHAT_MODEL = "openai/gpt-oss-20b"              # 20B: faster on Groq free tier
 FAST_MODEL = "openai/gpt-oss-20b"               # query rewriting + fallback
 
